@@ -1,0 +1,27 @@
+{
+    "dir_path": "C:\\Users\\Teeratat\\OneDrive\\เอกสาร\\LSLM\\CNX_expenses\\CNX-expenses\\Dataset",
+    "file_pattern": "(\\d+)_Budget_red_stripe.csv",
+    "group_by": "BUDGETARY_UNIT",
+    "data_columns": {
+        "amount": "AMOUNT",
+        "year": "BUDGET_YEAR",
+        "obliged": "OBLIGED",
+        "ministry": "BUDGETARY_UNIT"
+    },
+    "obliged_year": 2024,
+    "plot": {
+        "title": "Budget Distribution by Ministry",
+        "labels": {
+            "budget_year": "Year",
+            "amount": "Amount (Millions)"
+        },
+        "direction": "top",
+        "n_entries": 10,
+        "color": "MINISTRY"
+    },
+    "logging": {
+        "level": "INFO",
+        "format": "%(asctime)s - %(levelname)s - %(message)s"
+    }
+}
+
