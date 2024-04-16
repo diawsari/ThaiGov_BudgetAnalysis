@@ -1,5 +1,5 @@
 {
-    "dir_path": "C:\\Users\\Teeratat\\OneDrive\\เอกสาร\\LSLM\\CNX_expenses\\CNX-expenses\\Dataset",
+    "dir_path": "C:\\..YOUR_DIR\\Dataset",
     "file_pattern": "(\\d+)_Budget_red_stripe.csv",
     "group_by": "BUDGETARY_UNIT",
     "data_columns": {
