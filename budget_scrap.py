@@ -44,7 +44,7 @@ class BudgetSca:
         entries = re.split(r',', field)
         cleaned_entries = filter(None, (self.clean_bu(entry.strip()) for entry in entries))
         all_words = sum((self.tokenize_words(entry) for entry in cleaned_entries), [])
-        result = ', '.join(word for word, _ in Counter(all_words).most_common(5))
+        result = ','.join(word for word, _ in Counter(all_words).most_common(5))
         return result
 
     def parse_word_counts(self, word_counts):
@@ -103,6 +103,8 @@ class BudgetSca:
 
         columns = ['PROJECT', 'OUTPUT', 'ITEM_DESCRIPTION', 'CATEGORY_LV1', 'CATEGORY_LV2', 'CATEGORY_LV3', 'CATEGORY_LV4', 'CATEGORY_LV5', 'CATEGORY_LV6']
         grouped_result = pd.DataFrame()  # DataFrame to hold all grouped results
+        df['AMOUNT'] = df['AMOUNT'].str.replace(',', '').astype(float) / 1e6
+        df['FISCAL_YEAR'] = df['FISCAL_YEAR'].astype(int)
 
         for col in columns:
             # Apply safe_literal_eval to the column
@@ -118,12 +120,19 @@ class BudgetSca:
             # Mark the source of each word and rename the exploded column to 'Word'
             df_exploded['Source_Column'] = col
             df_exploded.rename(columns={col: 'Word'}, inplace=True)
-
+            
             # Group by specified columns including 'Word' and 'Source_Column' and calculate the frequency
-            grouped = df_exploded.groupby(['Word', groupby, 'BUDGET_YEAR', 'Source_Column']).size().reset_index(name='frequency')
-
+            grouped = df_exploded.groupby(['Word', groupby, 'BUDGET_YEAR', 'Source_Column', 'FISCAL_YEAR', 'OBLIGED']).agg(
+                frequency=('AMOUNT', 'size'),  # Count of rows in each group
+                total_amount=('AMOUNT', 'sum')  # Sum of 'AMOUNT' in each group
+                ).reset_index()
             # Concatenate current grouped results with previous ones
             grouped_result = pd.concat([grouped_result, grouped], axis=0, ignore_index=True)
+            # Drop rows where 'total_amount' is zero
+
+        # Apply filter to exclude rows where 'OBLIGED' == 'TRUE' and 'FISCAL_YEAR' != 2024
+        grouped_result = grouped_result[~((grouped_result['OBLIGED'] == True) & (grouped_result['FISCAL_YEAR'] != 2024))]
+        grouped_result = grouped_result[(grouped_result['Word'] != 0)]
         return grouped_result
 
 if __name__ == '__main__':
