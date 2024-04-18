@@ -104,8 +104,8 @@ class BudgetSca:
         """
         logging.info(f"{threading.current_thread().name} starting processing on {column_name}")
         start_time = time.time()
-        result = df[column_name].apply(self.parse_word_counts)  # This uses the modified process_field function
-        bar.next()  # Progress the bar
+        result = df[column_name].apply(self.parse_word_counts)
+        bar.next()
         logging.info(f"{threading.current_thread().name} has finished processing {column_name} in {time.time() - start_time:.2f} seconds")
         return result, column_name
 
@@ -146,17 +146,14 @@ class BudgetSca:
             pandas.DataFrame: The processed DataFrame with cleaned and transformed data.
         """
         start_time = time.time()
-        df['BUDGETARY_UNIT'] = df['BUDGETARY_UNIT'].apply(self.clean_bu)
         df['BUDGET_YEAR'] = df['BUDGET_YEAR'].astype(int)
-        columns = ['PROJECT', 'OUTPUT', 'ITEM_DESCRIPTION', 'CATEGORY_LV1', 'CATEGORY_LV2', 'CATEGORY_LV3', 'CATEGORY_LV4', 'CATEGORY_LV5', 'CATEGORY_LV6']
+        columns = ['PROJECT', 'OUTPUT', 'ITEM_DESCRIPTION', 'CATEGORY_LV1', 'CATEGORY_LV2', 'CATEGORY_LV3', 'CATEGORY_LV4', 'CATEGORY_LV5', 'CATEGORY_LV6'] # Define columns to be tokenized
         df = self.threaded_word_counts(df, columns)
-        df.fillna(int(0), inplace=True)
-        # Drop rows where all specified columns are empty
-        grouped = df
+        df.fillna(int(0), inplace=True) # Fill NaN values with 0
 
         # grouped.dropna(subset=columns, how='all', inplace=True)
         logging.info(f"project_scrap_get executed in {time.time() - start_time:.2f} seconds")
-        return grouped
+        return df
 
     def df_transform(self, df, groupby, cfg_fy):
         """
@@ -249,8 +246,5 @@ if __name__ == '__main__':
     merged_df = bg_cal.merge_dataframes(file_generator, file_pattern)
     if merged_df is not None:
         scrap_prepared_df = bg_sca.project_scrap_get(merged_df)
-        scrap_prepared_df.to_csv('scrap_prepared_df.csv', index=False)
-        # scrap_prepared_df = pd.read_csv('scrap_prepared_df.csv', encoding='utf-8')
-        # Transform the dataframe
         transformed_df = bg_sca.df_transform(scrap_prepared_df, group_by, config['fy'])
         transformed_df.to_csv('transformed_df.csv', index=False)
