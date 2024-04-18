@@ -13,6 +13,7 @@ from progress.bar import Bar
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import ast
+import numpy as np
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -56,23 +57,27 @@ class BudgetSca:
         return sub_word_list
 
     def apply_parse_word_counts(self, df, column_name, bar):
-        """Applies parse_word_counts method to a specific column and updates the progress bar."""
+        """Applies parse_word_counts method to a specific column and updates the progress bar, returning results without modifying the original column."""
         logging.info(f"{threading.current_thread().name} starting processing on {column_name}")
         start_time = time.time()
-        result = df[column_name].apply(self.parse_word_counts)
-        bar.next()  # Assuming 'Bar' is thread-safe; if not, replace with a thread-safe variant
+        result = df[column_name].apply(self.parse_word_counts)  # This uses the modified process_field function
+        bar.next()  # Progress the bar
         logging.info(f"{threading.current_thread().name} has finished processing {column_name} in {time.time() - start_time:.2f} seconds")
         return result, column_name
 
     def threaded_word_counts(self, df, columns):
-        """Uses threading to apply word count parsing to multiple dataframe columns with progress monitoring."""
+        """Uses threading to apply word count parsing to multiple dataframe columns with progress monitoring, appending results as new columns."""
         bar = Bar('Processing Columns', max=len(columns))  # Initialize progress bar
         max_workers = os.cpu_count()  # Dynamically set the number of threads
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self.apply_parse_word_counts, df, col, bar): col for col in columns}
-            for future in futures:
+            # Create a dictionary mapping original column names to new column names where results will be stored
+            future_to_column = {
+                executor.submit(self.apply_parse_word_counts, df, col, bar): col for col in columns
+            }
+            for future in future_to_column:
                 result, col_name = future.result()
-                df[col_name] = result
+                new_column_name = f"{col_name}_processed"  # Define new column name
+                df[new_column_name] = result  # Append results to new column instead of replacing
 
         bar.finish()  # Clean up after the bar
         return df
@@ -91,66 +96,89 @@ class BudgetSca:
         logging.info(f"project_scrap_get executed in {time.time() - start_time:.2f} seconds")
         return grouped
 
-    def df_transform(self, df, groupby):
-        def safe_literal_eval(s):
-            """ Safely evaluate string literals to Python objects. """
-            if isinstance(s, str) and s:  # Checks if s is a non-empty string
+    def df_transform(self, df, groupby, cfg_fy):
+        """Transforms the dataframe by grouping and aggregating data based on the specified columns."""
+        def safe_literal_eval(data):
+            """Safely evaluates strings that start with typical list, dict, or tuple indicators."""
+            if isinstance(data, str) and data.startswith(('[', '{', '(')):
                 try:
-                    return ast.literal_eval(s)
+                    return ast.literal_eval(data)
                 except (ValueError, SyntaxError) as e:
-                    print(f"Failed to eval: {s} with error: {e}")
-            return s  # Return original string if it's not evaluable or empty
+                    print(f"Error evaluating data: '{data}' with exception: {e}")
+                    return data
+            else:
+                return data
 
-        columns = ['PROJECT', 'OUTPUT', 'ITEM_DESCRIPTION', 'CATEGORY_LV1', 'CATEGORY_LV2', 'CATEGORY_LV3', 'CATEGORY_LV4', 'CATEGORY_LV5', 'CATEGORY_LV6']
         grouped_result = pd.DataFrame()  # DataFrame to hold all grouped results
-        df['AMOUNT'] = df['AMOUNT'].str.replace(',', '').astype(float) / 1e6
-        df['FISCAL_YEAR'] = df['FISCAL_YEAR'].astype(int)
 
-        for col in columns:
-            # Apply safe_literal_eval to the column
+        # Define the columns to include in the group by operation
+        sca_cross_col = ['Word', 'ITEM_ID', 'REF_DOC' ,'REF_PAGE_NO', groupby, 'BUDGET_YEAR', 'FISCAL_YEAR', 'OBLIGED', 'Source_Column', 'source_str']
+        
+        # Columns that are processed
+        processed_columns = [
+            'PROJECT_processed', 'OUTPUT_processed', 'ITEM_DESCRIPTION_processed', 
+            'CATEGORY_LV1_processed', 'CATEGORY_LV2_processed', 'CATEGORY_LV3_processed', 
+            'CATEGORY_LV4_processed', 'CATEGORY_LV5_processed', 'CATEGORY_LV6_processed'
+        ]
+        # Mapping of processed columns to original columns for source_str NLP cross-check
+        column_mapping = {
+            'PROJECT_processed': 'PROJECT',
+            'OUTPUT_processed': 'OUTPUT',
+            'ITEM_DESCRIPTION_processed': 'ITEM_DESCRIPTION',
+            'CATEGORY_LV1_processed': 'CATEGORY_LV1',
+            'CATEGORY_LV2_processed': 'CATEGORY_LV2',
+            'CATEGORY_LV3_processed': 'CATEGORY_LV3',
+            'CATEGORY_LV4_processed': 'CATEGORY_LV4',
+            'CATEGORY_LV5_processed': 'CATEGORY_LV5',
+            'CATEGORY_LV6_processed': 'CATEGORY_LV6'
+        }
+
+        # Preprocessing steps
+        df['AMOUNT'] = df['AMOUNT'].astype(str)
+        df['AMOUNT'] = df['AMOUNT'].str.replace(',', '').astype(float) / 1e6 # Convert to millions
+        df['FISCAL_YEAR'] = df['FISCAL_YEAR'].astype(int) # Convert to integer
+        df['Source_Column'] = None # Add this line to create the 'Source_Column' column
+        df['source_str'] = None  # Add this line to create the 'source_str' column
+        
+        # Explode the processed columns
+        for col in processed_columns:
             df[col] = df[col].apply(safe_literal_eval)
-            # Explode the column
             df_exploded = df.explode(col)
-            # Exclude '0' values and non-existent ones
-            df_exploded = df_exploded[df_exploded[col].notna() & (df_exploded[col] != '0')]
 
-            if df_exploded.empty:
-                continue  # Skip to the next column if no valid data left after filtering
-
-            # Mark the source of each word and rename the exploded column to 'Word'
             df_exploded['Source_Column'] = col
-            df_exploded.rename(columns={col: 'Word'}, inplace=True)
-            
-            # Group by specified columns including 'Word' and 'Source_Column' and calculate the frequency
-            grouped = df_exploded.groupby(['Word', groupby, 'BUDGET_YEAR', 'Source_Column', 'FISCAL_YEAR', 'OBLIGED']).agg(
-                frequency=('AMOUNT', 'size'),  # Count of rows in each group
-                total_amount=('AMOUNT', 'sum')  # Sum of 'AMOUNT' in each group
-                ).reset_index()
-            # Concatenate current grouped results with previous ones
-            grouped_result = pd.concat([grouped_result, grouped], axis=0, ignore_index=True)
-            # Drop rows where 'total_amount' is zero
+            df_exploded['Word'] = df_exploded[col]
+            if col in column_mapping:
+                df_exploded['source_str'] = np.where(df_exploded[col] != 0, df_exploded[column_mapping[col]], np.nan)
+            else:
+                df_exploded['source_str'] = np.nan
 
-        # Apply filter to exclude rows where 'OBLIGED' == 'TRUE' and 'FISCAL_YEAR' != 2024
-        grouped_result = grouped_result[~((grouped_result['OBLIGED'] == True) & (grouped_result['FISCAL_YEAR'] != 2024))]
-        grouped_result = grouped_result[(grouped_result['Word'] != 0)]
+            # Filter and group operations
+            grouped = df_exploded.groupby(sca_cross_col).agg(
+                frequency=('AMOUNT', 'size'),
+                total_amount=('AMOUNT', 'sum')
+            ).reset_index()
+
+            grouped_result = pd.concat([grouped_result, grouped], ignore_index=True) # Concatenate the grouped results each processed column
+
+        # Filter the grouped results to only include rows where 'OBLIGED' is True and 'FISCAL_YEAR' is 2024, or 'OBLIGED' is False
+        grouped_result = grouped_result[((grouped_result['OBLIGED'] == True) & (grouped_result['FISCAL_YEAR'] == cfg_fy)) | (grouped_result['OBLIGED'] == False)]
+        # Filter out rows where 'Word' is '0'
+        grouped_result = grouped_result[grouped_result['Word'] != '0']
+
         return grouped_result
-
 if __name__ == '__main__':
-    try:
-        with open('config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        bg_cal = BudgetCal(config)
-        bg_sca = BudgetSca(config)
-        file_generator = bg_cal.read_csv_files(config['dir_path'])
-        file_pattern = config.get("file_pattern", r"(\d+)_Budget_red_stripe.csv")
-        group_by = config.get("group_by")
-        merged_df = bg_cal.merge_dataframes(file_generator, file_pattern)
-        merged_df.to_csv('unit_grouped_unit.csv', index=False)
-        if merged_df is not None:
-            scrap_prepared_df = bg_sca.project_scrap_get(merged_df)
-            scrap_prepared_df.to_csv('scrap_prepared_df.csv', index=False)
-            # scrap_prepared_df = pd.read_csv('scrap_prepared_df.csv', encoding='utf-8')
-            transformed_df = bg_sca.df_transform(scrap_prepared_df, group_by)
-            transformed_df.to_csv('transformed_df.csv', index=False)
-    except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
+    with open('config.json', 'r', encoding='utf-8') as f:
+        config = json.load(f)
+    bg_cal = BudgetCal(config)
+    bg_sca = BudgetSca(config)
+    file_generator = bg_cal.read_csv_files(config['dir_path'])
+    file_pattern = config.get("file_pattern", r"(\d+)_Budget_red_stripe.csv")
+    group_by = config.get("group_by")
+    merged_df = bg_cal.merge_dataframes(file_generator, file_pattern)
+    if merged_df is not None:
+        scrap_prepared_df = bg_sca.project_scrap_get(merged_df)
+        scrap_prepared_df.to_csv('scrap_prepared_df.csv', index=False)
+        # scrap_prepared_df = pd.read_csv('scrap_prepared_df.csv', encoding='utf-8')
+        # Transform the dataframe
+        transformed_df = bg_sca.df_transform(scrap_prepared_df, group_by, config['fy'])
+        transformed_df.to_csv('transformed_df.csv', index=False)

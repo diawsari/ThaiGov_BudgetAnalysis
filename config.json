@@ -1,6 +1,8 @@
 {
-    "dir_path": "C:\\..YOUR_DIR\\Dataset",
+    "dir_path": "__YOUR_DIR__",
     "file_pattern": "(\\d+)_Budget_red_stripe.csv",
+    "sca_cross" : false,
+    "fy" : 2024,
     "group_by": "BUDGETARY_UNIT",
     "data_columns": {
         "amount": "AMOUNT",
