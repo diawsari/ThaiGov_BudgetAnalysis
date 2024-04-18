@@ -24,7 +24,15 @@ class BudgetSca:
         logging.info("Configuration loaded successfully.")
 
     def clean_bu(self, bu):
-        """Normalize and clean budget unit text."""
+        """Normalize and clean budget unit text.
+
+        Args:
+            bu (str): The budget unit text to be cleaned.
+
+        Returns:
+            str or None: The cleaned budget unit text, or None if the input is NaN.
+
+        """
         if pd.isna(bu):
             return None
         elif isinstance(bu, str):
@@ -33,13 +41,30 @@ class BudgetSca:
         return bu
 
     def tokenize_words(self, text):
-        """Tokenize text, removing whitespace and stopwords, keeping significant words only."""
+        """
+        Tokenize the given text by removing whitespace and stopwords, and keeping significant words only.
+
+        Parameters:
+            text (str): The text to be tokenized.
+
+        Returns:
+            list: A list of significant words after tokenization.
+        """
         words = word_tokenize(text, keep_whitespace=False)
         result = [word for word in words if word not in thai_stopwords() and len(word) > 1]
         return result
 
     def process_field(self, field):
-        """Process each field: split, clean, tokenize, and retrieve common words."""
+        """
+        Process each field: split, clean, tokenize, and retrieve common words.
+
+        Args:
+            field (str): The field to be processed.
+
+        Returns:
+            str: The result of processing the field.
+
+        """
         if pd.isna(field) or field.strip() == "":
             return ""
         entries = re.split(r',', field)
@@ -49,7 +74,15 @@ class BudgetSca:
         return result
 
     def parse_word_counts(self, word_counts):
-        """Parse a string of word counts into a dictionary."""
+        """Parse a string of word counts into a list of sub-words.
+
+        Args:
+            word_counts (str): A string containing word counts separated by commas.
+
+        Returns:
+            list: A list of sub-words extracted from the word_counts string.
+
+        """
         if pd.isna(word_counts) or not word_counts.strip():
             return 
         word = self.process_field(word_counts)
@@ -57,7 +90,18 @@ class BudgetSca:
         return sub_word_list
 
     def apply_parse_word_counts(self, df, column_name, bar):
-        """Applies parse_word_counts method to a specific column and updates the progress bar, returning results without modifying the original column."""
+        """
+        Applies the parse_word_counts method to a specific column and updates the progress bar.
+
+        Args:
+            df (pandas.DataFrame): The DataFrame containing the column to be processed.
+            column_name (str): The name of the column to be processed.
+            bar (ProgressBar): The progress bar to be updated.
+
+        Returns:
+            tuple: A tuple containing the processed result and the column name.
+
+        """
         logging.info(f"{threading.current_thread().name} starting processing on {column_name}")
         start_time = time.time()
         result = df[column_name].apply(self.parse_word_counts)  # This uses the modified process_field function
@@ -66,7 +110,16 @@ class BudgetSca:
         return result, column_name
 
     def threaded_word_counts(self, df, columns):
-        """Uses threading to apply word count parsing to multiple dataframe columns with progress monitoring, appending results as new columns."""
+        """
+        Uses threading to apply word count parsing to multiple dataframe columns with progress monitoring, appending results as new columns.
+
+        Args:
+            df (pandas.DataFrame): The input dataframe.
+            columns (list): A list of column names in the dataframe to apply word count parsing to.
+
+        Returns:
+            pandas.DataFrame: The modified dataframe with new columns containing the word count results.
+        """
         bar = Bar('Processing Columns', max=len(columns))  # Initialize progress bar
         max_workers = os.cpu_count()  # Dynamically set the number of threads
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -83,6 +136,15 @@ class BudgetSca:
         return df
     
     def project_scrap_get(self, df):
+        """
+        Process the given DataFrame to clean and transform the data.
+
+        Args:
+            df (pandas.DataFrame): The input DataFrame containing budget data.
+
+        Returns:
+            pandas.DataFrame: The processed DataFrame with cleaned and transformed data.
+        """
         start_time = time.time()
         df['BUDGETARY_UNIT'] = df['BUDGETARY_UNIT'].apply(self.clean_bu)
         df['BUDGET_YEAR'] = df['BUDGET_YEAR'].astype(int)
@@ -97,7 +159,17 @@ class BudgetSca:
         return grouped
 
     def df_transform(self, df, groupby, cfg_fy):
-        """Transforms the dataframe by grouping and aggregating data based on the specified columns."""
+        """
+        Transforms the dataframe by grouping and aggregating data based on the MINISTRY/BUDGETARY_UNIT columns.
+
+        Parameters:
+            df (pandas.DataFrame): The input dataframe to be transformed. normally the output of project_scrap_get.
+            groupby (str): The column name to group the data by. the MINISTRY/BUDGETARY_UNIT column.
+            cfg_fy (int): The fiscal year to filter the data. current fiscal year to filter out obliged.
+
+        Returns:
+            pandas.DataFrame: The transformed dataframe with grouped and aggregated data.
+        """
         def safe_literal_eval(data):
             """Safely evaluates strings that start with typical list, dict, or tuple indicators."""
             if isinstance(data, str) and data.startswith(('[', '{', '(')):
